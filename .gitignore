@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.pyc
 
 # Virtual environments
 .venv/
@@ -36,3 +37,6 @@ dist/
 .env.*
 secrets.json
 config.local.json
+
+#Folders
+Exports

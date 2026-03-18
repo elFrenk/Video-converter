@@ -11,7 +11,7 @@ Questa documentazione è divisa in file brevi per essere più leggibile.
 
 ## File principali del progetto
 
-- [`video_to_frames_gui_enhanced.py`](video_to_frames_gui_enhanced.py) — interfaccia grafica principale
+- [`video_to_frames_gui.py`](video_to_frames_gui_enhanced.py) — interfaccia grafica principale
 - [`settings_store.py`](settings_store.py) — salvataggio e caricamento impostazioni
 - [`preview.py`](preview.py) — anteprima video/frame
 - [`frame_exporter.py`](frame_exporter.py) — esportazione dei frame

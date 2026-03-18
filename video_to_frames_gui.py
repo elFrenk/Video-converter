@@ -2,8 +2,11 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from PIL import Image, ImageTk
+
 from export_pairs import PairExportConfig, PairExportError, export_pairs
 from frame_exporter import ExportConfig, ExportConfigError, export_frames
+from preview import PreviewError, read_preview_frame, resize_for_preview
 from video_io import (
     VideoIOError,
     build_default_output_dir,
@@ -16,8 +19,8 @@ class VideoToFramesApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Video to Frames Exporter")
-        self.root.geometry("820x700")
-        self.root.minsize(760, 620)
+        self.root.geometry("820x720")
+        self.root.minsize(760, 640)
 
         self.video_path = tk.StringVar()
         self.output_dir = tk.StringVar()
@@ -44,6 +47,9 @@ class VideoToFramesApp:
         self.video_info_text = tk.StringVar(value="Nessun video selezionato.")
         self.progress_var = tk.DoubleVar(value=0.0)
         self.status_var = tk.StringVar(value="Pronto.")
+
+        self._preview_window = None
+        self._preview_photo = None
 
         self._build_ui()
 
@@ -164,7 +170,7 @@ class VideoToFramesApp:
                 "• Export mode = frames: esporta una sequenza normale.\n"
                 "• Export mode = pairs: esporta coppie controllate di immagini.\n"
                 "• Usa sequential se vuoi una sequenza compatta o coppie più pulite negli script.\n"
-                "• Se il video è lungo, usa passo > 1 oppure pair spacing per diradare il dataset."
+                "• Anteprima primo frame: utile per controllare che OpenCV stia leggendo il video giusto."
             ),
             justify="left",
             wraplength=700,
@@ -178,6 +184,7 @@ class VideoToFramesApp:
         buttons = ttk.Frame(main)
         buttons.pack(fill="x", pady=(10, 0))
         ttk.Button(buttons, text="Leggi info video", command=self.load_video_info).pack(side="left")
+        ttk.Button(buttons, text="Anteprima primo frame", command=self.show_preview).pack(side="left", padx=(8, 0))
         ttk.Button(buttons, text="Esporta", command=self.start_export_thread).pack(side="right")
 
     def browse_video(self):
@@ -217,6 +224,43 @@ class VideoToFramesApp:
         self.video_info_text.set(format_video_info(info))
         if not self.end_frame_var.get().strip() and info.frame_count > 0:
             self.end_frame_var.set(str(info.frame_count - 1))
+
+    def show_preview(self):
+        video = self.video_path.get().strip()
+        if not video:
+            messagebox.showwarning("Attenzione", "Seleziona prima un video.")
+            return
+
+        try:
+            preview = read_preview_frame(video, frame_index=0)
+            frame_bgr = resize_for_preview(preview.image_bgr, max_width=760, max_height=460)
+            frame_rgb = frame_bgr[:, :, ::-1]
+            pil_image = Image.fromarray(frame_rgb)
+            self._preview_photo = ImageTk.PhotoImage(pil_image)
+        except (PreviewError, OSError) as exc:
+            messagebox.showerror("Errore anteprima", str(exc))
+            return
+
+        if self._preview_window is not None and self._preview_window.winfo_exists():
+            self._preview_window.destroy()
+
+        self._preview_window = tk.Toplevel(self.root)
+        self._preview_window.title("Anteprima primo frame")
+        self._preview_window.transient(self.root)
+
+        container = ttk.Frame(self._preview_window, padding=10)
+        container.pack(fill="both", expand=True)
+
+        info_text = (
+            f"Video: {preview.video_path}\n"
+            f"Frame mostrato: {preview.frame_index}\n"
+            f"Dimensioni originali: {preview.width} x {preview.height}"
+        )
+        ttk.Label(container, text=info_text, justify="left").pack(anchor="w", pady=(0, 8))
+
+        image_label = ttk.Label(container, image=self._preview_photo)
+        image_label.image = self._preview_photo
+        image_label.pack(anchor="center")
 
     def start_export_thread(self):
         self.progress_var.set(0.0)

@@ -2,6 +2,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from export_pairs import PairExportConfig, PairExportError, export_pairs
 from frame_exporter import ExportConfig, ExportConfigError, export_frames
 from video_io import (
     VideoIOError,
@@ -15,8 +16,8 @@ class VideoToFramesApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Video to Frames Exporter")
-        self.root.geometry("780x620")
-        self.root.minsize(740, 560)
+        self.root.geometry("820x700")
+        self.root.minsize(760, 620)
 
         self.video_path = tk.StringVar()
         self.output_dir = tk.StringVar()
@@ -33,6 +34,12 @@ class VideoToFramesApp:
         self.overwrite_var = tk.BooleanVar(value=False)
         self.naming_mode_var = tk.StringVar(value="source_index")
         self.padding_var = tk.StringVar(value="5")
+
+        self.export_mode_var = tk.StringVar(value="frames")
+        self.pair_mode_var = tk.StringVar(value="consecutive")
+        self.pair_step_var = tk.StringVar(value="1")
+        self.pair_spacing_var = tk.StringVar(value="1")
+        self.create_subfolders_var = tk.BooleanVar(value=True)
 
         self.video_info_text = tk.StringVar(value="Nessun video selezionato.")
         self.progress_var = tk.DoubleVar(value=0.0)
@@ -116,7 +123,37 @@ class VideoToFramesApp:
             values=["source_index", "sequential"],
             state="readonly",
             width=16,
+        ).pack(side="left", padx=(0, 20))
+        ttk.Label(row6, text="Export mode:", width=12).pack(side="left")
+        ttk.Combobox(
+            row6,
+            textvariable=self.export_mode_var,
+            values=["frames", "pairs"],
+            state="readonly",
+            width=12,
         ).pack(side="left")
+
+        pair_frame = ttk.LabelFrame(main, text="Impostazioni coppie", padding=10)
+        pair_frame.pack(fill="x", pady=6)
+
+        row7 = ttk.Frame(pair_frame)
+        row7.pack(fill="x", pady=3)
+        ttk.Label(row7, text="Pair mode:", width=16).pack(side="left")
+        ttk.Combobox(
+            row7,
+            textvariable=self.pair_mode_var,
+            values=["consecutive", "stride", "custom_step"],
+            state="readonly",
+            width=16,
+        ).pack(side="left", padx=(0, 20))
+        ttk.Label(row7, text="Pair step:", width=12).pack(side="left")
+        ttk.Entry(row7, textvariable=self.pair_step_var, width=12).pack(side="left", padx=(0, 20))
+        ttk.Label(row7, text="Pair spacing:", width=12).pack(side="left")
+        ttk.Entry(row7, textvariable=self.pair_spacing_var, width=12).pack(side="left")
+
+        row8 = ttk.Frame(pair_frame)
+        row8.pack(fill="x", pady=3)
+        ttk.Checkbutton(row8, text="Crea sottocartelle per coppia", variable=self.create_subfolders_var).pack(side="left")
 
         tips = ttk.LabelFrame(main, text="Suggerimenti per geopyv", padding=10)
         tips.pack(fill="x", pady=6)
@@ -124,11 +161,13 @@ class VideoToFramesApp:
             tips,
             text=(
                 "• Per geopyv in genere conviene PNG o JPG.\n"
-                "• Usa source_index se vuoi mantenere il riferimento al frame originale.\n"
-                "• Usa sequential se vuoi una sequenza compatta: frame_00001, frame_00002, ...\n"
-                "• Se il video è lungo, usa passo > 1 per esportare un frame ogni N frame."
+                "• Export mode = frames: esporta una sequenza normale.\n"
+                "• Export mode = pairs: esporta coppie controllate di immagini.\n"
+                "• Usa sequential se vuoi una sequenza compatta o coppie più pulite negli script.\n"
+                "• Se il video è lungo, usa passo > 1 oppure pair spacing per diradare il dataset."
             ),
             justify="left",
+            wraplength=700,
         ).pack(anchor="w")
 
         progress_frame = ttk.LabelFrame(main, text="Avanzamento", padding=10)
@@ -139,7 +178,7 @@ class VideoToFramesApp:
         buttons = ttk.Frame(main)
         buttons.pack(fill="x", pady=(10, 0))
         ttk.Button(buttons, text="Leggi info video", command=self.load_video_info).pack(side="left")
-        ttk.Button(buttons, text="Esporta fotogrammi", command=self.start_export_thread).pack(side="right")
+        ttk.Button(buttons, text="Esporta", command=self.start_export_thread).pack(side="right")
 
     def browse_video(self):
         path = filedialog.askopenfilename(
@@ -182,24 +221,32 @@ class VideoToFramesApp:
     def start_export_thread(self):
         self.progress_var.set(0.0)
         self.status_var.set("Avvio export...")
-        thread = threading.Thread(target=self.export_frames_worker, daemon=True)
+        thread = threading.Thread(target=self.export_worker, daemon=True)
         thread.start()
 
-    def export_frames_worker(self):
+    def export_worker(self):
         try:
-            config = self._build_config_from_ui()
-            report = export_frames(config, progress_callback=self._progress_callback)
-            self.root.after(0, self.progress_var.set, 100.0)
-            self.root.after(
-                0,
-                self.status_var.set,
-                (
-                    f"Completato. Esportati {report.exported_frames}/{report.requested_frames} frame "
-                    f"in: {report.output_dir}"
-                ),
-            )
-            self.root.after(0, lambda: messagebox.showinfo("Completato", self._build_report_message(report)))
-        except (ValueError, ExportConfigError, VideoIOError) as exc:
+            if self.export_mode_var.get().strip() == "pairs":
+                config = self._build_pair_config_from_ui()
+                report = export_pairs(config)
+                self.root.after(0, self.progress_var.set, 100.0)
+                self.root.after(
+                    0,
+                    self.status_var.set,
+                    f"Completato. Esportate {report.exported_pairs}/{report.total_pairs} coppie in: {report.output_dir}",
+                )
+                self.root.after(0, lambda: messagebox.showinfo("Completato", self._build_pair_report_message(report)))
+            else:
+                config = self._build_config_from_ui()
+                report = export_frames(config, progress_callback=self._progress_callback)
+                self.root.after(0, self.progress_var.set, 100.0)
+                self.root.after(
+                    0,
+                    self.status_var.set,
+                    f"Completato. Esportati {report.exported_frames}/{report.requested_frames} frame in: {report.output_dir}",
+                )
+                self.root.after(0, lambda: messagebox.showinfo("Completato", self._build_report_message(report)))
+        except (ValueError, ExportConfigError, VideoIOError, PairExportError) as exc:
             self.root.after(0, self.status_var.set, f"Errore: {exc}")
             self.root.after(0, lambda: messagebox.showerror("Errore", str(exc)))
         except Exception as exc:
@@ -229,6 +276,32 @@ class VideoToFramesApp:
             zero_padding=int(self.padding_var.get().strip()),
         )
 
+    def _build_pair_config_from_ui(self) -> PairExportConfig:
+        end_frame_text = self.end_frame_var.get().strip()
+        resize_w_text = self.resize_width_var.get().strip()
+        resize_h_text = self.resize_height_var.get().strip()
+
+        return PairExportConfig(
+            video_path=self.video_path.get().strip(),
+            output_dir=self.output_dir.get().strip(),
+            image_format=self.format_var.get().strip().lower(),
+            prefix=self.prefix_var.get().strip() or "pair",
+            start_frame=int(self.start_frame_var.get().strip()),
+            end_frame=int(end_frame_text) if end_frame_text else None,
+            pair_mode=self.pair_mode_var.get().strip(),
+            pair_step=int(self.pair_step_var.get().strip()),
+            pair_spacing=int(self.pair_spacing_var.get().strip()),
+            jpeg_quality=int(self.jpeg_quality_var.get().strip()),
+            png_compression=int(self.png_compression_var.get().strip()),
+            resize_width=int(resize_w_text) if resize_w_text else None,
+            resize_height=int(resize_h_text) if resize_h_text else None,
+            grayscale=self.gray_var.get(),
+            overwrite=self.overwrite_var.get(),
+            naming_mode=self.naming_mode_var.get().strip(),
+            zero_padding=int(self.padding_var.get().strip()),
+            create_subfolders=self.create_subfolders_var.get(),
+        )
+
     def _progress_callback(self, current: int, total: int, message: str):
         progress = 0.0 if total <= 0 else 100.0 * current / total
         self.root.after(0, self.progress_var.set, progress)
@@ -248,6 +321,20 @@ class VideoToFramesApp:
             lines.append(f"Primo file: {report.first_output}")
         if report.last_output:
             lines.append(f"Ultimo file: {report.last_output}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_pair_report_message(report) -> str:
+        lines = [
+            f"Coppie totali: {report.total_pairs}",
+            f"Coppie esportate correttamente: {report.exported_pairs}",
+            f"Cartella output: {report.output_dir}",
+        ]
+        if report.pair_reports:
+            first_pair, first_a, first_b = report.pair_reports[0]
+            lines.append(
+                f"Prima coppia: ({first_pair.first_index}, {first_pair.second_index}) -> {first_a.first_output} | {first_b.first_output}"
+            )
         return "\n".join(lines)
 
 

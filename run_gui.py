@@ -1,6 +1,6 @@
 from tkinter import Tk, ttk
 
-from video_to_frames_gui import VideoToFramesApp
+from video_to_frames_gui import VideoToFramesAppEnhanced
 
 
 def main() -> None:
@@ -17,7 +17,7 @@ def main() -> None:
     except Exception:
         pass
 
-    VideoToFramesApp(root)
+    VideoToFramesAppEnhanced(root)
     root.mainloop()
 
 
